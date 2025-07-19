@@ -12,6 +12,8 @@ param (
     [Parameter(Mandatory = $false)]
     [int]$OverpricedCount = 5,      # How many cheaper orders are fine for the Overpriced option.
     [Parameter(Mandatory = $false)]
+    [int]$CheckBuy = $true,         # Whether or not to also check buy orders.
+    [Parameter(Mandatory = $false)]
     [int]$TopSyndicateMods = 3      # How many of the most profitable mods per syndicate should be printed. 0 to disable.
 )
 # https://warframe.market/
@@ -133,6 +135,52 @@ foreach ($order in $userSellOrders) {
     }
 }
 
+# TODO: move into function to then use for buy and sell.
+# Check buy orders.
+if($CheckBuy) {
+    $userBuyOrders = $userOrdersData.data | Where-Object { $_.type -eq "buy" }
+    foreach ($order in $userBuyOrders) {
+        $isFine = $true
+        $itemSlug = Get-Item-Slug($order.itemId)
+        Log("Got buy item slug: $itemSlug")
+
+        # Get all orders for the item
+        $topOrdersData = Invoke-Api "$baseUrl/orders/item/$itemSlug"
+        if (-not $topOrdersData) {
+            Write-Output("Found no orders for $itemSlug.")
+            continue
+        }
+
+        # Get the actual user price. The value from the user orders might be outdated.
+        $userPrice = ($topOrdersData.data | Where-Object { $_.type -eq "buy" -and $_.user.slug -eq $userSlug }).platinum
+        Log("User buy price: $userPrice")
+        if(-not $userPrice -gt 0) {
+            Write-Output("Found no current order for user, probably got removed recently: [$itemSlug]")
+            continue
+        }
+        $userOrderUpdated = ($topOrdersData.data | Where-Object { $_.type -eq "buy" -and $_.user.slug -eq $userSlug }).updatedAt
+
+        # Filter out offline orders, we only need to compete with online.
+        # Also filter out our own orders.
+        $topBuyOrders = $topOrdersData.data | Where-Object { $_.type -eq "buy" -and $_.user.status -ne "offline" -and $_.user.slug -ne $userSlug }
+        # Make sure the list is ordered by date and price. On the website, the newest order within the same price will be on top.
+        $topBuyOrders = $topBuyOrders | Sort-Object -Property updatedAt -Descending | Sort-Object -Property platinum -Descending
+
+        # Check how many same-price orders are ahead.
+        $samePriceMoreRecentCount = (@($topBuyOrders | Where-Object { $_.platinum -eq $userPrice -and $_.updatedAt -gt $userOrderUpdated })).Count
+        if ($samePriceMoreRecentCount -gt 0) {
+            if($Priceorder) {
+                Write-Output "User's buy order is behind $samePriceMoreRecentCount same-price offer(s) of $($userPrice) platinum: [$itemSlug]"
+            }
+            $isFine = $false
+        }
+
+        if($isFine -and $Fine) {
+            Write-Output "Item is fine with the price of $($userPrice): [$itemSlug]"
+        }
+    }
+}
+
 # Check Syndicate prices.
 if($TopSyndicateMods -gt 0) {
     Write-Output("User orders done, getting Syndicate mods now.")
@@ -223,7 +271,7 @@ if($TopSyndicateMods -gt 0) {
         $line = "*$($syndicate)*: " + ($itemStrings -join ", ")
         Write-Output $line
     }
-	# TODO: Check buy orders for same prices.
-	# TODO: Check for cheap ducats.
+	# TODO: Also get the cheapest syndicate prices? To buy and resell them? But there are probably better things to flip.
+	# TODO: Check for cheap ducates.
 }
 Write-Output "$((Get-Date).ToString('HH:mm:ss')) Program done."
