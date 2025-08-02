@@ -17,6 +17,7 @@ param (
     [int]$TopSyndicateMods = 3      # How many of the most profitable mods per syndicate should be printed. 0 to disable.
 )
 # https://warframe.market/
+# API documentation on that site at the bottom under "LINKS"
 # Goals:
 ## Find orders of same price that are in front of me. To then refresh my order.
 ## Find orders with at least X other orders that are cheaper. To maybe lower my price.
@@ -39,7 +40,7 @@ function Invoke-Api {
     )
     try {
         Log("Doing API request, slowing down: $url")
-        Start-Sleep -Milliseconds 500
+        Start-Sleep -Milliseconds 400
         return Invoke-RestMethod -Uri $url -Method Get -Headers @{
             Accept = "application/json"
             Platform = "pc"
@@ -183,7 +184,7 @@ if($CheckBuy) {
 
 # Check Syndicate prices.
 if($TopSyndicateMods -gt 0) {
-    Write-Output("User orders done, getting Syndicate mods now.")
+    Write-Output("User orders done, getting Syndicate mods ($($TopSyndicateMods)+) now.")
     # 20250621 list taken from wiki, syndicate offerings.
     $syndicates = @{
         "The Perrin Sequence" = @("razor_mortar","toxic_sequence","deadly_sequence","voltage_sequence","sequence_burn","sonic_fracture","resonance","savage_silence","resonating_quake","afterburn","everlasting_ward","vexing_retaliation","guardian_armor","guided_effigy","spectral_spirit","mach_crash","thermal_transfer","conductive_sphere","coil_recharge","cathode_current","balefire_surge","blazing_pillage","aegis_gale","desiccations_curse","elemental_sandstorm","negation_swarm","empowered_quiver","piercing_navigator","infiltrate","concentrated_arrow","greedy_pull","magnetized_discharge","counter_pulse","fracturing_crush","soul_survivor","creeping_terrify","despoil","shield_of_shadows","teeming_virulence","larva_burst","parasitic_vitality","insatiable","abundant_mutation","repair_dispensary","temporal_artillery","temporal_erosion","thrall_pact","mesmer_shield","blinding_reave","ironclad_charge","iron_shrapnel","piercing_roar","reinforcing_stomp","pool_of_life","vampire_leech","abating_link","champions_blessing","swing_line","eternal_war","prolonged_paralysis","hysterical_assault","enraged","tesla_bank","repelling_bastille","photon_repeater","shadow_haze","dark_propagation")
@@ -268,10 +269,9 @@ if($TopSyndicateMods -gt 0) {
         $itemStrings = $syndicateResults[$syndicate] | ForEach-Object {
             "$($_.Item):$($_.Price)"
         }
-        $line = "*$($syndicate)*: " + ($itemStrings -join ", ")
-        Write-Output $line
+        Write-Output "*$($syndicate)*:"
+		Write-Output ($itemStrings -join ", ")
     }
-	# TODO: Also get the cheapest syndicate prices? To buy and resell them? But there are probably better things to flip.
-	# TODO: Check for cheap ducates.
 }
+# TODO: Check for cheap ducats.
 Write-Output "$((Get-Date).ToString('HH:mm:ss')) Program done."
