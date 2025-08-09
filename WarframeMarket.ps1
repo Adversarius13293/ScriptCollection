@@ -14,7 +14,11 @@ param (
     [Parameter(Mandatory = $false)]
     [int]$CheckBuy = $true,         # Whether or not to also check buy orders.
     [Parameter(Mandatory = $false)]
-    [int]$TopSyndicateMods = 3      # How many of the most profitable mods per syndicate should be printed. 0 to disable.
+    [int]$TopSyndicateMods = 3,     # How many of the most profitable mods per syndicate should be printed. 0 to disable.
+    [Parameter(Mandatory = $false)]
+    [int]$TopDucatItems = 5,        # How many of the most profitable to buy ducat items should be printed.
+    [Parameter(Mandatory = $false)]
+    [int]$DucatInstantOutput = 45   # At which ducat per platinum ratio a found item should be printed immediately, instead of being evaluated once all other items are checked.
 )
 # https://warframe.market/
 # API documentation on that site at the bottom under "LINKS"
@@ -270,8 +274,53 @@ if($TopSyndicateMods -gt 0) {
             "$($_.Item):$($_.Price)"
         }
         Write-Output "*$($syndicate)*:"
-		Write-Output ($itemStrings -join ", ")
+        Write-Output ($itemStrings -join ", ")
     }
 }
-# TODO: Check for cheap ducats.
+
+# Get current offers with best ducats for plat ratio.
+if($TopDucatItems -gt 0) {
+    Write-Output("$((Get-Date).ToString('HH:mm:ss')) Getting the at least $($TopDucatItems) best Ducat prices now, this takes around 7 minutes.")
+    $ducatItems = $script:itemList.data | Where-Object { $_.ducats -gt 0 }
+    Log("Found $($ducatItems.Count) items with Ducat values.")
+    $ducatResults = @()
+    foreach ($item in $ducatItems) {
+        $itemData = Invoke-Api "$baseUrl/orders/item/$($item.slug)"
+        if (-not $itemData) {
+            Write-Output "No data for Ducat item $itemSlug."
+            continue
+        }
+        # Here we only want ingame offers. No need to deal with just online offers.
+        $sellOrders = $itemData.data | Where-Object { $_.type -eq "sell" -and $_.user.status -in @("ingame") }
+        $sortedOrders = $sellOrders | Sort-Object -Property updatedAt -Descending | Sort-Object -Property platinum
+        
+        if($sortedOrders.Count -le 0) {
+            Write-Output("Found no sell-offers for $($item.slug).")
+            continue;
+        }
+        
+        $ducatResults += [PSCustomObject]@{
+            Name  = $item.slug
+            Price = $sortedOrders[0].platinum
+            Ducats = $item.ducats
+            Ratio = $item.ducats / $sortedOrders[0].platinum
+            Printed = $item.ducats / $sortedOrders[0].platinum -ge $DucatInstantOutput
+        }
+        # It takes like 5 minutes to process all items. In this time the good offers might already be gone.
+        # So print out the really good offer immediately when found.
+        if($ducatResults[-1].Printed) {
+            Write-Output("[Instant] Ducats/Platinum: $($ducatResults[-1].Ratio) for item $($ducatResults[-1].Name) ($($ducatResults[-1].Ducats)) being sold for $($ducatResults[-1].Price) platinum")
+        }
+    }
+    $ducatResults = $ducatResults | Sort-Object -Property Ratio -Descending
+    $filteredDucatResults = $ducatResults | Where-Object { $_.Ratio -ge $ducatResults[$TopDucatItems].Ratio }
+    foreach($ducatOffer in $filteredDucatResults) {
+        if(-not $ducatOffer.Printed) {
+            Write-Output "Ducats/Platinum: $($ducatOffer.Ratio) for item $($ducatOffer.Name) ($($ducatOffer.Ducats)) being sold for $($ducatOffer.Price) platinum"
+        }
+    }
+}
+
+# TODO: Check for specific items i want to buy super cheap, like Ayatan Sculptures
+
 Write-Output "$((Get-Date).ToString('HH:mm:ss')) Program done."
